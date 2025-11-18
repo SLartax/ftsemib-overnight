@@ -208,14 +208,17 @@ def compute_all():
         equity_series = [{"trade_index": int(idx), "date": ts.strftime("%Y-%m-%d"), "equity": float(eq)}
                          for idx, (ts, eq) in enumerate(zip(trades.index, system.equity_curve))]
         tdf = system.trades.reset_index().rename(columns={"index": "Date"}).tail(100)
-        trades_list = [{"date": (dt.strftime("%Y-%m-%d") if isinstance(dt, pd.Timestamp) else str(dt)),
-                        "pnl_pct": float(row["pnl"] * 100.0),
-                        "pnl_points": float(row["pnl_points"]),
-                        "pnl_raw": float(row["raw_points"]),
-                        "pnl_dollar": float(row["pnl_$"]),
-                        "result": str(row["result"]),
-                        "equity_after": float(row["equity_after"])}
-                       for _, row in tdf.iterrows()]
+        trades_list = []
+        for _, row in tdf.iterrows():
+            trades_list.append({
+                "date": (row["Date"].strftime("%Y-%m-%d") if isinstance(row["Date"], pd.Timestamp) else str(row["Date"])),
+                "pnl_pct": float(row["pnl"] * 100.0),
+                "pnl_points": float(row["pnl_points"]),
+                "pnl_raw": float(row["raw_points"]),
+                "pnl_dollar": float(row["pnl_$"]),
+                "result": str(row["result"]),
+                "equity_after": float(row["equity_after"])
+            })
     
     result = {"metrics": metrics, "equity": equity_series, "trades": trades_list, "signal": signal,
               "updated_at": datetime.utcnow().isoformat()}
