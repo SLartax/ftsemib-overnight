@@ -1,6 +1,3 @@
-# ==========================================================
-# compute.py – FTSEMIB Overnight System (GitHub Actions safe)
-# ==========================================================
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -8,52 +5,39 @@ import json
 import os
 from datetime import datetime, timezone
 
-# ==========================================================
-# CONFIG
-# ==========================================================
 START_DATE = "2000-01-01"
-OUTPUT_CSV = "output/trades.csv"
-OUTPUT_JSON = "output/latest.json"
-OUTPUT_EQUITY = "output/equity.csv"
+OUTPUT_CSV = "docs/data/trades.csv"
+OUTPUT_JSON = "docs/data/status.json"
+OUTPUT_EQUITY = "docs/data/equity.csv"
 
-os.makedirs("output", exist_ok=True)
+os.makedirs("docs/data", exist_ok=True)
 
 
-# ==========================================================
-# HELPERS
-# ==========================================================
-def log(msg: str):
+def log(msg):
     print(f"[*] {msg}")
 
 
 def cast_float(x):
-    """Cast numpy floats to built-in float to avoid JSON issues."""
     try:
         return float(x)
-    except Exception:
+    except:
         return x
 
 
-# ==========================================================
-# DATA LOADING
-# ==========================================================
 def load_ftsemib():
-    log("Downloading FTSEMIB.MI…")
-    df = yf.download("FTSEMIB.MI", start=START_DATE, interval="1d", auto_adjust=False, progress=False)
+    log("Download FTSEMIB.MI…")
+    df = yf.download("FTSEMIB.MI", start=START_DATE, interval="1d",
+                     auto_adjust=False, progress=False)
 
     if df is None or df.empty:
-        raise ValueError("ERROR: Could not download FTSEMIB from Yahoo Finance.")
+        raise ValueError("Yahoo Finance returned empty data.")
 
     df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
     df.index = pd.to_datetime(df.index)
     df.index.name = "Date"
-
     return df
 
 
-# ==========================================================
-# BUILD DATASET
-# ==========================================================
 def build_dataset():
     df = load_ftsemib()
     log(f"Rows: {len(df)}")
@@ -61,61 +45,43 @@ def build_dataset():
     df["Close_prev"] = df["Close"].shift(1)
     df["gap_open"] = df["Open"] / df["Close_prev"] - 1
 
-    df["vol_ma20"] = df["Volume"].rolling(20).mean()
-    df["vol_std20"] = df["Volume"].rolling(20).std()
-    df["vol_z"] = (df["Volume"] - df["vol_ma20"]) / df["vol_std20"]
+    df["vol_ma"] = df["Volume"].rolling(20).mean()
+    df["vol_std"] = df["Volume"].rolling(20).std()
+    df["vol_z"] = (df["Volume"] - df["vol_ma"]) / df["vol_std"]
 
     df.dropna(inplace=True)
     return df
 
 
-# ==========================================================
-# STRATEGY (Esempio semplice e NO look-ahead)
-# ==========================================================
 def compute_signal(row):
-    """
-    Esempio di sistema overnight:
-    - Long se gap_open > -0.2% e volume sotto media
-    - Short se gap_open < -1% e volume molto alto
-    Uscita sempre su OPEN del giorno successivo.
-    """
     if row["gap_open"] > -0.002 and row["vol_z"] < -0.5:
         return 1
-    elif row["gap_open"] < -0.01 and row["vol_z"] > 1.5:
+    if row["gap_open"] < -0.01 and row["vol_z"] > 1.5:
         return -1
     return 0
 
 
-# ==========================================================
-# BACKTEST
-# ==========================================================
 def run_backtest(df):
     log("Running backtest…")
 
     df["Signal"] = df.apply(compute_signal, axis=1)
-
     df["Next_Open"] = df["Open"].shift(-1)
     df["Return"] = (df["Next_Open"] / df["Open"] - 1) * df["Signal"]
-
-    df = df[:-1]  # last row has no exit
+    df = df[:-1]
 
     trades = df[df["Signal"] != 0].copy()
 
-    # -------- TRADES LIST FOR EXPORT (FIXED) --------
+    # FIX DEFINITIVO — NO "dt" — SOLO row.name
     trades_list = []
     for idx, row in trades.iterrows():
-
-        d = idx
-        if isinstance(d, pd.Timestamp):
-            d = d.strftime("%Y-%m-%d")
+        date_str = idx.strftime("%Y-%m-%d")
 
         trades_list.append({
-            "date": d,
+            "date": date_str,
             "signal": int(row["Signal"]),
             "return_pct": cast_float(row["Return"] * 100)
         })
 
-    # -------- EQUITY CURVE --------
     equity = (1 + trades["Return"]).cumprod()
     equity_df = pd.DataFrame({"Date": equity.index, "Equity": equity.values})
     equity_df.to_csv(OUTPUT_EQUITY, index=False)
@@ -123,11 +89,8 @@ def run_backtest(df):
     return trades, trades_list, equity_df
 
 
-# ==========================================================
-# EXPORT RESULTS
-# ==========================================================
 def save_results(trades, trades_list, equity):
-    log("Saving output…")
+    log("Saving JSON + CSV…")
 
     trades.to_csv(OUTPUT_CSV)
 
@@ -136,8 +99,7 @@ def save_results(trades, trades_list, equity):
         "num_trades": int(len(trades)),
         "avg_return_pct": cast_float(trades["Return"].mean() * 100),
         "winrate": cast_float((trades["Return"] > 0).mean() * 100),
-        "last_signal": int(trades["Signal"].iloc[-1]) if len(trades) > 0 else 0,
-        "last_date": trades.index[-1].strftime("%Y-%m-%d") if len(trades) > 0 else None,
+        "last_signal": int(trades["Signal"].iloc[-1]) if len(trades) else 0,
         "trades": trades_list
     }
 
@@ -145,9 +107,6 @@ def save_results(trades, trades_list, equity):
         json.dump(out, f, indent=2)
 
 
-# ==========================================================
-# MAIN
-# ==========================================================
 def compute_all():
     log("Starting computation…")
     df = build_dataset()
