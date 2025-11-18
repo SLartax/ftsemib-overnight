@@ -37,4 +37,5 @@ venv.bak/
 .DS_Store
 
 *.json
+!docs/data/status.json
 !.gitkeep
