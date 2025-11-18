@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>FAI QUANT SUPERIOR — FTSEMIB Overnight</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #0b1220;
+            color: #e5e7eb;
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            padding: 16px 24px;
+            border-bottom: 1px solid #1f2937;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #020617;
+        }
+        header h1 {
+            font-size: 20px;
+            margin: 0;
+        }
+        .badge {
+            background: #22c55e33;
+            color: #bbf7d0;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+        }
+        main {
+            padding: 16px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+            gap: 16px;
+        }
+        .card {
+            background: #020617;
+            border-radius: 16px;
+            padding: 16px;
+            border: 1px solid #1f2937;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        .card h2 {
+            font-size: 16px;
+            margin-top: 0;
+            margin-bottom: 8px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .metric {
+            font-size: 13px;
+        }
+        .metric span {
+            display: block;
+        }
+        .metric-label {
+            color: #9ca3af;
+        }
+        .metric-value {
+            font-weight: 600;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        th, td {
+            padding: 4px 6px;
+            text-align: right;
+            border-bottom: 1px solid #111827;
+        }
+        th {
+            background: #020617;
+            position: sticky;
+            top: 0;
+        }
+        td:first-child, th:first-child {
+            text-align: left;
+        }
+        .result-win {
+            color: #4ade80;
+            font-weight: 600;
+        }
+        .result-loss {
+            color: #f87171;
+            font-weight: 600;
+        }
+        .signal-pill {
+            font-size: 13px;
+            padding: 4px 10px;
+            border-radius: 999px;
+        }
+        .signal-long {
+            background: #22c55e22;
+            color: #bbf7d0;
+        }
+        .signal-flat {
+            background: #f9731622;
+            color: #fed7aa;
+        }
+        .small {
+            font-size: 11px;
+            color: #9ca3af;
+        }
+        canvas {
+            max-height: 360px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<header>
+    <h1>FAI QUANT SUPERIOR — FTSEMIB Overnight</h1>
+    <div>
+        <span id="signalPill" class="signal-pill signal-flat">Caricamento…</span>
+        <span class="badge">GitHub Pages + Actions</span>
+    </div>
+</header>
+<main>
+    <div class="grid">
+        <div class="card">
+            <h2>Equity Curve</h2>
+            <p class="small" id="lastUpdate">Ultimo aggiornamento: —</p>
+            <canvas id="equityChart"></canvas>
+        </div>
+        <div class="card">
+            <h2>Metriche & Segnale</h2>
+            <div class="metrics-grid" id="metricsBox">
+                <!-- metriche riempite da JS -->
+            </div>
+            <hr style="border-color:#111827;margin:12px 0;">
+            <div id="signalBox" class="small">
+                <!-- segnale riempito da JS -->
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+        <h2>Ultime operazioni (max 100)</h2>
+        <div style="max-height: 260px; overflow:auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Result</th>
+                        <th>PnL %</th>
+                        <th>Punti FTSE</th>
+                        <th>Punti raw</th>
+                        <th>PnL € (cap 100k)</th>
+                        <th>Equity dopo</th>
+                    </tr>
+                </thead>
+                <tbody id="tradesBody">
+                    <!-- righe riempite da JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<script>
+let equityChart = null;
+
+function formatPct(x) {
+    if (x === null || x === undefined) return "—";
+    return x.toFixed(2) + " %";
+}
+function formatPoints(x) {
+    if (x === null || x === undefined) return "—";
+    return x.toFixed(2);
+}
+function formatMoney(x) {
+    if (x === null || x === undefined) return "—";
+    return x.toFixed(0) + " €";
+}
+
+async function loadData() {
+    try {
+        const res = await fetch("data/status.json");
+        const data = await res.json();
+
+        const metrics = data.metrics || {};
+        const equity = data.equity || [];
+        const trades = data.trades || [];
+        const signal = data.signal || {};
+
+        // === METRICHE ===
+        const metricsBox = document.getElementById("metricsBox");
+        metricsBox.innerHTML = `
+            <div class="metric">
+                <span class="metric-label">Trades</span>
+                <span class="metric-value">${metrics.trades ?? 0}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Avg trade %</span>
+                <span class="metric-value">${formatPct(metrics.avg_pct ?? 0)}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Avg punti FTSE</span>
+                <span class="metric-value">${formatPoints(metrics.avg_points ?? 0)}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Avg punti raw</span>
+                <span class="metric-value">${formatPoints(metrics.avg_points_raw ?? 0)}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Winrate</span>
+                <span class="metric-value">${formatPct(metrics.winrate_pct ?? 0)}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">CAGR</span>
+                <span class="metric-value">${formatPct(metrics.cagr_pct ?? 0)}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Max drawdown</span>
+                <span class="metric-value">${formatPct(metrics.max_dd_pct ?? 0)}</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Total return</span>
+                <span class="metric-value">${formatPct(metrics.total_return_pct ?? 0)}</span>
+            </div>
+        `;
+
+        // === SEGNALE ===
+        const signalBox = document.getElementById("signalBox");
+        const pill = document.getElementById("signalPill");
+        const s = (signal.signal || "FLAT").toUpperCase();
+        const emoji = signal.emoji || "🔴";
+        pill.textContent = `${emoji} ${s}`;
+        pill.className = "signal-pill " + (s === "LONG" ? "signal-long" : "signal-flat");
+
+        signalBox.innerHTML = `
+            <div><strong>Segnale per domani</strong></div>
+            <div>Ultima barra: <strong>${signal.today || "—"}</strong></div>
+            <div>Per domani: <strong>${signal.tomorrow || "—"}</strong></div>
+            <div>Segnale: <strong>${emoji} ${s}</strong></div>
+            <div style="margin-top:4px;" class="small">
+                Logica: overnight FTSEMIB (chiusura → apertura), Venerdì escluso,
+                pattern TOP3 + filtri SPY/VIX/volume.
+            </div>
+        `;
+
+        // === EQUITY CHART ===
+        const ctx = document.getElementById("equityChart").getContext("2d");
+        const labels = equity.map(e => e.date);
+        const values = equity.map(e => e.equity);
+
+        if (equityChart !== null) {
+            equityChart.data.labels = labels;
+            equityChart.data.datasets[0].data = values;
+            equityChart.update();
+        } else {
+            equityChart = new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: "Equity (capitale iniziale 100.000 €)",
+                        data: values,
+                        tension: 0.2,
+                        borderWidth: 2,
+                        borderColor: "#22c55e",
+                        backgroundColor: "rgba(34, 197, 94, 0.1)"
+                    }]
+                },
+                options: {
+                    scales: {
+                        x: {
+                            ticks: { color: "#9ca3af", maxTicksLimit: 8 },
+                            grid: { color: "#111827" }
+                        },
+                        y: {
+                            ticks: { color: "#9ca3af" },
+                            grid: { color: "#111827" }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: "#e5e7eb" }
+                        }
+                    }
+                }
+            });
+        }
+
+        // === TABELLA TRADES ===
+        const tbody = document.getElementById("tradesBody");
+        tbody.innerHTML = "";
+        for (const t of trades.slice().reverse()) {
+            const tr = document.createElement("tr");
+            const cls = t.result === "WIN" ? "result-win" : "result-loss";
+            tr.innerHTML = `
+                <td>${t.date}</td>
+                <td class="${cls}">${t.result}</td>
+                <td>${formatPct(t.pnl_pct)}</td>
+                <td>${formatPoints(t.pnl_points)}</td>
+                <td>${formatPoints(t.pnl_raw)}</td>
+                <td>${formatMoney(t.pnl_dollar)}</td>
+                <td>${formatMoney(t.equity_after)}</td>
+            `;
+            tbody.appendChild(tr);
+        }
+
+        // === TIMESTAMP AGGIORNAMENTO ===
+        const now = new Date();
+        document.getElementById("lastUpdate").textContent =
+            "Ultimo aggiornamento: " + now.toLocaleString();
+    } catch (err) {
+        console.error("Errore nel caricamento dati:", err);
+    }
+}
+
+// Primo caricamento + auto-refresh ogni 60s
+loadData();
+setInterval(loadData, 60000);
+</script>
+</body>
+</html>
