@@ -2,7 +2,7 @@ name: Update FTSEMIB Data
 
 on:
   schedule:
-    - cron: '0 2 * * 1-5'  # Ogni giorno alle 02:00 UTC (4:00 CET), Lun-Ven
+    - cron: '30 17 * * 1-5  ## Ogni giorno alle 17:30 UTC (19:30 CET), Lun-Ven
   workflow_dispatch:
 
 jobs:
